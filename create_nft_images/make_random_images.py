@@ -17,12 +17,12 @@ num_images = 9990
 # Set numbers that trigger an ultra rare background and anime realtor being picked
 u_rare_background_triggers = []
 u_rare_backgrounds_count = 0
-for _ in range(1):
-    u_rare_background_triggers.append(random.randint(0, num_images - 1))
+for _ in range(3):
+    u_rare_background_triggers.append(random.randint(0, num_images - 100))
 u_rare_realtor_triggers = []
 u_rare_realtor_count = 0
-for _ in range(1):
-    u_rare_realtor_triggers.append(random.randint(0, num_images - 1))
+for _ in range(3):
+    u_rare_realtor_triggers.append(random.randint(0, num_images - 100))
 # swap out 50% of the zebra's that get picked
 zebra_cut = 2
 
@@ -154,19 +154,28 @@ if __name__=="__main__":
 
         # Roll to see if an ultra rare background or ultra rare realtor is unlocked for this image
         random_roll = random.randint(0, num_images)
+        u_rare_tag = ""
         if random_roll in u_rare_background_triggers:
+            u_rare_tag = "urbg"
             u_rare_backgrounds_count += 1
             print(f"Ultra Rare Background Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_backgrounds_count}")
             background_file = random.choice(u_rare_backgrounds)
             b_path = os.path.join(ultra_rare_background_dir, background_file)
         if random_roll in u_rare_realtor_triggers:
             u_rare_realtor_count += 1
+            if u_rare_tag == "urbg":
+                u_rare_tag = u_rare_tag + "_urar"
+            else:
+                u_rare_tag = "urar"
+            u_rare_tag = u_rare_tag + "rare_realtor"
             print(f"Ultra Rare Realtor Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_realtor_count}")
             realtor_file = random.choice(u_rare_realtors)
             r_path = os.path.join(ultra_rare_realtors_dir, realtor_file)
+        if u_rare_tag != "":
+            u_rare_tag = u_rare_tag + "_"
         
         # Output file path
-        out_path = os.path.join(output_dir, f"nft_{i+1}.png")
+        out_path = os.path.join(output_dir, f"{u_rare_tag}nft_{i+1}.png")
         
         # Combine the images and save the result
         combine_images(background_path=b_path, realtor_path=r_path, output_path=out_path)
@@ -175,6 +184,7 @@ if __name__=="__main__":
 
         if (i + 1) % 100 == 0:  # Print progress every 100 images
             print(f"Generated {i + 1}/{num_images} images.")
+            print(f"Runtime: {time.time() - start_time:.6f} seconds.\n")
 
     print("Image generation complete!")
 
