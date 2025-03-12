@@ -51,10 +51,13 @@ for _ in range(1):
     u_rare_realtor_triggers.append(random.randint(0, num_images - 1))
 
 # Function to combine images
-def combine_images(background_path, realtor_path, output_path, realtor_size=0.9):
+def combine_images(background_path, realtor_path, output_path, realtor_size=0.8):
     # Open the background and anime realtor images
     background = Image.open(background_path)
     realtor = Image.open(realtor_path).convert("RGBA")
+
+    # Resize realtor to fit the background 
+    realtor = realtor.resize(background.size, Image.LANCZOS)
     
     # Get original sizes
     bg_width, bg_height = background.size
