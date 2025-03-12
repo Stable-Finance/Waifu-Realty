@@ -1,0 +1,5 @@
+.DS_Store
+.hypothesis
+charmap.json.gz
+local_copy.json
+.env
