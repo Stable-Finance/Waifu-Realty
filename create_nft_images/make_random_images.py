@@ -1,9 +1,30 @@
 from PIL import Image
 import random
 import os
+from dotenv import load_dotenv
+from google.cloud import storage
+import time
 
+start_time = time.time() 
+# load google cloud credentals
+load_dotenv()
+gcp_key = os.getenv("GCP_KEY")
+gcp_bucket = os.getenv("BUCKET_NAME")
 # Set random
 random.seed(1691691)
+# Number of images to generate
+num_images = 9990
+# Set numbers that trigger an ultra rare background and anime realtor being picked
+u_rare_background_triggers = []
+u_rare_backgrounds_count = 0
+for _ in range(1):
+    u_rare_background_triggers.append(random.randint(0, num_images - 1))
+u_rare_realtor_triggers = []
+u_rare_realtor_count = 0
+for _ in range(1):
+    u_rare_realtor_triggers.append(random.randint(0, num_images - 1))
+# swap out 50% of the zebra's that get picked
+zebra_cut = 2
 
 # Define directories for the images
 backgrounds_dir = "backgrounds/"  # Directory with your background images
@@ -28,8 +49,30 @@ Combining from {len(backgrounds)} backgrounds, {len(anime_realtors)} realtors, {
 """
 print(initial_status)
 
-# Number of images to generate
-num_images = 12
+
+def upload_png_to_gcs(bucket_name, source_file_path, destination_blob_name):
+    """
+    Uploads a PNG file to the specified Google Cloud Storage bucket.
+    """
+    # Initialize the GCS client
+    client = storage.Client()
+    
+    # Get the bucket
+    bucket = client.bucket(bucket_name)
+    
+    # Create a blob (object) in the bucket
+    blob = bucket.blob(destination_blob_name)
+    
+    # Upload the PNG file
+    blob.upload_from_filename(source_file_path, content_type="image/png")
+
+    # delete file from local storage
+    os.remove(source_file_path)
+
+    # tell us every 50
+    if len(os.listdir(backgrounds_dir)) % 50 == 0:
+        print(f"File {source_file_path} uploaded to {bucket_name}/{destination_blob_name}")
+    
 
 # Define a function to count how many files are in a directory
 def count_files(directory):
@@ -39,16 +82,6 @@ def count_files(directory):
             n_files += 1
     return n_files
 
-# Set numbers that trigger an ultra rare background and anime realtor being picked
-u_rare_background_triggers = []
-u_rare_backgrounds_count = 0
-for _ in range(1):
-    u_rare_background_triggers.append(random.randint(0, num_images - 1))
-
-u_rare_realtor_triggers = []
-u_rare_realtor_count = 0
-for _ in range(1):
-    u_rare_realtor_triggers.append(random.randint(0, num_images - 1))
 
 # Function to combine images
 def combine_images(background_path, realtor_path, output_path, realtor_size=0.8):
@@ -90,38 +123,61 @@ def combine_images(background_path, realtor_path, output_path, realtor_size=0.8)
     # Save the result
     combined.save(output_path, format="PNG")
 
-# Generate the collection
-for i in range(num_images):
-    # pick a random number between 1 and 8000
 
-    # Randomly select a background and anime realtor image
-    background_file = random.choice(backgrounds)
-    realtor_file = random.choice(anime_realtors)
-    
-    # Construct the full file paths
-    b_path = os.path.join(backgrounds_dir, background_file)
-    r_path = os.path.join(anime_realtors_dir, realtor_file)
+# create nft images and upload them to google cloud storage bucket
+if __name__=="__main__":
+    # record number of files that are elgible to be cut
+    count_for_cut = 0
 
-    # Roll to see if an ultra rare background or ultra rare realtor is unlocked for this image
-    random_roll = random.randint(0, num_images)
-    if random_roll in u_rare_background_triggers:
-        u_rare_backgrounds_count += 1
-        print(f"Ultra Rare Background Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_backgrounds_count}")
-        background_file = random.choice(u_rare_backgrounds)
-        b_path = os.path.join(ultra_rare_background_dir, background_file)
-    if random_roll in u_rare_realtor_triggers:
-        u_rare_realtor_count += 1
-        print(f"Ultra Rare Realtor Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_realtor_count}")
-        realtor_file = random.choice(u_rare_realtors)
-        r_path = os.path.join(ultra_rare_realtors_dir, realtor_file)
-    
-    # Output file path
-    out_path = os.path.join(output_dir, f"nft_{i+1}.png")
-    
-    # Combine the images and save the result
-    combine_images(background_path=b_path, realtor_path=r_path, output_path=out_path)
+    # Generate the collection
+    for i in range(num_images):
+        # Randomly select a background and anime realtor image
+        background_file = random.choice(backgrounds)
+        realtor_file = random.choice(anime_realtors)
 
-    if (i + 1) % 100 == 0:  # Print progress every 100 images
-        print(f"Generated {i + 1}/{num_images} images.")
+        # cut choices randomly
+        if "zebra" in realtor_file:
+            # did we let the last one thru?
+            if count_for_cut % 2 == 1:
+                print("zebra cut")
+                # pick a new file
+                realtor_file = random.choice(anime_realtors)
+                count_for_cut += 1
+            else:
+                print("zebra thru")
+                count_for_cut += 1
 
-print("Image generation complete!")
+        
+        # Construct the full file paths
+        b_path = os.path.join(backgrounds_dir, background_file)
+        r_path = os.path.join(anime_realtors_dir, realtor_file)
+
+        # Roll to see if an ultra rare background or ultra rare realtor is unlocked for this image
+        random_roll = random.randint(0, num_images)
+        if random_roll in u_rare_background_triggers:
+            u_rare_backgrounds_count += 1
+            print(f"Ultra Rare Background Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_backgrounds_count}")
+            background_file = random.choice(u_rare_backgrounds)
+            b_path = os.path.join(ultra_rare_background_dir, background_file)
+        if random_roll in u_rare_realtor_triggers:
+            u_rare_realtor_count += 1
+            print(f"Ultra Rare Realtor Unlocked w/ code {random_roll} for nft_{i+1}.png! Total {u_rare_realtor_count}")
+            realtor_file = random.choice(u_rare_realtors)
+            r_path = os.path.join(ultra_rare_realtors_dir, realtor_file)
+        
+        # Output file path
+        out_path = os.path.join(output_dir, f"nft_{i+1}.png")
+        
+        # Combine the images and save the result
+        combine_images(background_path=b_path, realtor_path=r_path, output_path=out_path)
+
+        upload_png_to_gcs(gcp_bucket, out_path, f"nft_{i+1}.png")
+
+        if (i + 1) % 100 == 0:  # Print progress every 100 images
+            print(f"Generated {i + 1}/{num_images} images.")
+
+    print("Image generation complete!")
+
+    end_time = time.time()
+    print(f"Runtime: {end_time - start_time:.6f} seconds")
+    print(f"Runtime: {(end_time - start_time)/100} seconds per image")

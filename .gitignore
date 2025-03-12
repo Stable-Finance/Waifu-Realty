@@ -2,3 +2,4 @@
 .hypothesis
 charmap.json.gz
 local_copy.json
+.env
