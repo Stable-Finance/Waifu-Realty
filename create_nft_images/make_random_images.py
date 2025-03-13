@@ -2,26 +2,28 @@ from PIL import Image
 import random
 import os
 from dotenv import load_dotenv
-from google.cloud import storage
+from google.cloud.storage import Client, transfer_manager
 import time
 
 start_time = time.time() 
-# load google cloud credentals
+# set up google cloud storage connection
 load_dotenv()
 gcp_key = os.getenv("GCP_KEY")
 gcp_bucket = os.getenv("BUCKET_NAME")
-# Set random
+storage_client = Client()
+# Set random seed
 random.seed(1691691)
 # Number of images to generate
 num_images = 9990
+images_per_upload = 100
 # Set numbers that trigger an ultra rare background and anime realtor being picked
 u_rare_background_triggers = []
 u_rare_backgrounds_count = 0
-for _ in range(3):
+for _ in range(10):
     u_rare_background_triggers.append(random.randint(0, num_images - 100))
 u_rare_realtor_triggers = []
 u_rare_realtor_count = 0
-for _ in range(3):
+for _ in range(10):
     u_rare_realtor_triggers.append(random.randint(0, num_images - 100))
 # swap out 50% of the zebra's that get picked
 zebra_cut = 2
@@ -43,36 +45,63 @@ anime_realtors = [_file for _file in os.listdir(anime_realtors_dir) if _file != 
 u_rare_backgrounds = [_file for _file in os.listdir(ultra_rare_background_dir) if _file != ".DS_Store"]
 u_rare_realtors = [_file for _file in os.listdir(ultra_rare_realtors_dir) if _file != ".DS_Store"]
 
-# share how many of each file we have
-initial_status = f"""
-Combining from {len(backgrounds)} backgrounds, {len(anime_realtors)} realtors, {len(u_rare_backgrounds)} rare backgrounds, and {len(u_rare_realtors)} rare realtors.
-"""
-print(initial_status)
+# # share how many of each file we have
+# initial_status = f"""
+# Combining from {len(backgrounds)} backgrounds, {len(anime_realtors)} realtors, {len(u_rare_backgrounds)} rare backgrounds, and {len(u_rare_realtors)} rare realtors.
+# """
+# print(initial_status)
 
+def upload_many_blobs_with_transfer_manager(
+    bucket_name, filenames, source_directory="", workers=8
+):
+    """Upload every file in a list to a bucket, concurrently in a process pool.
 
-def upload_png_to_gcs(bucket_name, source_file_path, destination_blob_name):
+    Each blob name is derived from the filename, not including the
+    `source_directory` parameter. For complete control of the blob name for each
+    file (and other aspects of individual blob metadata), use
+    transfer_manager.upload_many() instead.
     """
-    Uploads a PNG file to the specified Google Cloud Storage bucket.
-    """
-    # Initialize the GCS client
-    client = storage.Client()
-    
-    # Get the bucket
-    bucket = client.bucket(bucket_name)
-    
-    # Create a blob (object) in the bucket
-    blob = bucket.blob(destination_blob_name)
-    
-    # Upload the PNG file
-    blob.upload_from_filename(source_file_path, content_type="image/png")
 
-    # delete file from local storage
-    os.remove(source_file_path)
+    # The ID of your GCS bucket
+    # bucket_name = "your-bucket-name"
 
-    # tell us every 50
-    if len(os.listdir(backgrounds_dir)) % 50 == 0:
-        print(f"File {source_file_path} uploaded to {bucket_name}/{destination_blob_name}")
-    
+    # A list (or other iterable) of filenames to upload.
+    # filenames = ["file_1.txt", "file_2.txt"]
+
+    # The directory on your computer that is the root of all of the files in the
+    # list of filenames. This string is prepended (with os.path.join()) to each
+    # filename to get the full path to the file. Relative paths and absolute
+    # paths are both accepted. This string is not included in the name of the
+    # uploaded blob; it is only used to find the source files. An empty string
+    # means "the current working directory". Note that this parameter allows
+    # directory traversal (e.g. "/", "../") and is not intended for unsanitized
+    # end user input.
+    # source_directory=""
+
+    # The maximum number of processes to use for the operation. The performance
+    # impact of this value depends on the use case, but smaller files usually
+    # benefit from a higher number of processes. Each additional process occupies
+    # some CPU and memory resources until finished. Threads can be used instead
+    # of processes by passing `worker_type=transfer_manager.THREAD`.
+    # workers=8
+    bucket = storage_client.bucket(bucket_name)
+
+    results = transfer_manager.upload_many_from_filenames(
+        bucket, filenames, source_directory=source_directory, max_workers=workers
+    )
+
+    for name, result in zip(filenames, results):
+        # The results list is either `None` or an exception for each filename in
+        # the input list, in order.
+
+        if isinstance(result, Exception):
+            print("Failed to upload {} due to exception: {}".format(name, result))
+        else:
+            # delete the file from local storage
+            os.remove(f"{source_directory}/{name}")
+            if "rare" in name:
+                print("Uploaded {} to {}.".format(name, bucket.name))
+
 
 # Define a function to count how many files are in a directory
 def count_files(directory):
@@ -128,6 +157,7 @@ def combine_images(background_path, realtor_path, output_path, realtor_size=0.8)
 if __name__=="__main__":
     # record number of files that are elgible to be cut
     count_for_cut = 0
+    files_for_bulk_upload = []
 
     # Generate the collection
     for i in range(num_images):
@@ -175,12 +205,28 @@ if __name__=="__main__":
             u_rare_tag = u_rare_tag + "_"
         
         # Output file path
-        out_path = os.path.join(output_dir, f"{u_rare_tag}nft_{i+1}.png")
+        output_file_name = f"{u_rare_tag}nft_{i+1}.png"
+        out_path = os.path.join(output_dir, output_file_name)
         
         # Combine the images and save the result
-        combine_images(background_path=b_path, realtor_path=r_path, output_path=out_path)
+        combine_images(background_path=b_path, 
+                       realtor_path=r_path, 
+                       output_path=out_path
+                       )
+        # add the file name to the list for the next bulk upload
+        files_for_bulk_upload.append(output_file_name)
 
-        upload_png_to_gcs(gcp_bucket, out_path, f"nft_{i+1}.png")
+        # bulk upload images to GCS every 10 images
+        if len(files_for_bulk_upload) % images_per_upload == 0  or (i + 1) == num_images:
+            print("\nBulk upload underway!\n")
+            upload_many_blobs_with_transfer_manager(
+                gcp_bucket, 
+                files_for_bulk_upload, 
+                source_directory=output_dir, 
+                workers=8
+                                                )
+            # reset collection of files for upload
+            files_for_bulk_upload = []
 
         if (i + 1) % 100 == 0:  # Print progress every 100 images
             print(f"Generated {i + 1}/{num_images} images.")
